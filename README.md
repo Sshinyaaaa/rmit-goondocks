@@ -31,6 +31,17 @@ If you have cloned or transferred this repository to a new machine, follow these
 git clone [https://github.com/sshinyaaaa/rmit-goondocks.git](https://github.com/sshinyaaaa/rmit-goondocks.git)
 cd rmit-goondocks
 
+# # #
+cd "/home/overlord/VsCode/Hackaton 2026/blind-orbit/server"
+npm uninstall ts-node-dev ts-node
+npm install -D tsx
+
+npm pkg set scripts.dev="npx tsx watch src/server.ts"
+
+cd "/home/overlord/VsCode/Hackaton 2026/blind-orbit/server"
+npm run dev
+
+
 
 # Install server dependencies
 cd server
@@ -39,6 +50,8 @@ npm install
 # Install client dependencies
 cd ../client
 npm install
+
+
 
 3. Run the Development Environment
 
