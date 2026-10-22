@@ -14,6 +14,7 @@ export const OrbitalCanvas: React.FC<OrbitalCanvasProps> = ({
   starlinkIngested,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const [rotation, setRotation] = useState({ yaw: 0.45, pitch: 0.32 });
   const [zoom, setZoom] = useState(1.0);
   const [timeProgress, setTimeProgress] = useState(0.72);
@@ -23,20 +24,41 @@ export const OrbitalCanvas: React.FC<OrbitalCanvasProps> = ({
   useEffect(() => {
     let animId: number;
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    const container = containerRef.current;
+    if (!canvas || !container) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const render = (timestamp: number) => {
-      const width = canvas.width;
-      const height = canvas.height;
-      const cx = width / 2;
-      const cy = height / 2;
-      const radius = Math.min(width, height) * 0.31 * zoom;
+    let liveOrbitOffset = 0;
 
+    const render = (timestamp: number) => {
+      const rect = container.getBoundingClientRect();
+      const width = Math.max(300, Math.floor(rect.width));
+      const height = Math.max(340, Math.floor(rect.height));
+      const dpr = window.devicePixelRatio || 1;
+
+      // High-DPI Resolution Buffer Fix
+      if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
+        canvas.width = width * dpr;
+        canvas.height = height * dpr;
+      }
+
+      ctx.save();
+      ctx.scale(dpr, dpr);
       ctx.clearRect(0, 0, width, height);
 
-      ctx.strokeStyle = 'rgba(39, 39, 42, 0.35)';
+      // Autonomous continuous rotation & motion when not dragging
+      if (!isDragging) {
+        setRotation((prev) => ({ ...prev, yaw: prev.yaw + 0.002 }));
+        liveOrbitOffset += 0.012;
+      }
+
+      const cx = width / 2;
+      const cy = height / 2;
+      const radius = Math.min(width, height) * 0.3 * zoom;
+
+      // Deep space grid background
+      ctx.strokeStyle = 'rgba(39, 39, 42, 0.4)';
       ctx.lineWidth = 1;
       for (let x = 0; x < width; x += 40) {
         ctx.beginPath();
@@ -59,16 +81,27 @@ export const OrbitalCanvas: React.FC<OrbitalCanvasProps> = ({
         return { px: cx + x1 * radius, py: cy + y2 * radius, depth: z2 };
       };
 
-      const grad = ctx.createRadialGradient(cx, cy, radius * 0.85, cx, cy, radius * 1.35);
-      grad.addColorStop(0, 'rgba(14, 116, 144, 0.16)');
+      // Atmosphere Glow
+      const grad = ctx.createRadialGradient(cx, cy, radius * 0.85, cx, cy, radius * 1.4);
+      grad.addColorStop(0, 'rgba(14, 116, 144, 0.22)');
       grad.addColorStop(1, 'rgba(9, 9, 11, 0)');
       ctx.fillStyle = grad;
       ctx.beginPath();
-      ctx.arc(cx, cy, radius * 1.35, 0, Math.PI * 2);
+      ctx.arc(cx, cy, radius * 1.4, 0, Math.PI * 2);
       ctx.fill();
 
-      ctx.strokeStyle = 'rgba(63, 63, 70, 0.55)';
-      ctx.lineWidth = 1;
+      // Planet Earth Core & Wireframe Grid
+      const planetGrad = ctx.createRadialGradient(cx - radius * 0.3, cy - radius * 0.3, radius * 0.1, cx, cy, radius);
+      planetGrad.addColorStop(0, '#0f172a');
+      planetGrad.addColorStop(0.8, '#082f49');
+      planetGrad.addColorStop(1, '#020617');
+      ctx.fillStyle = planetGrad;
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.45)';
+      ctx.lineWidth = 1.1;
       for (let lat = -60; lat <= 60; lat += 30) {
         const latRad = (lat * Math.PI) / 180;
         const rLat = Math.cos(latRad);
@@ -83,6 +116,12 @@ export const OrbitalCanvas: React.FC<OrbitalCanvasProps> = ({
         ctx.stroke();
       }
 
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.7)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx.stroke();
+
       const orbitScale = 1.28;
       const getDoDPoint = (t: number) => {
         const inc = (62 * Math.PI) / 180;
@@ -95,8 +134,8 @@ export const OrbitalCanvas: React.FC<OrbitalCanvasProps> = ({
 
       const getStarlinkPoint = (t: number, mitigated: boolean) => {
         const inc = (-53 * Math.PI) / 180;
-        const shift = mitigated ? 0.14 : 0.0;
-        const rScale = mitigated ? orbitScale + 0.09 : orbitScale;
+        const shift = mitigated ? 0.16 : 0.0;
+        const rScale = mitigated ? orbitScale + 0.1 : orbitScale;
         const angle = t - 0.85 * 2;
         return {
           x: rScale * Math.cos(angle),
@@ -105,10 +144,11 @@ export const OrbitalCanvas: React.FC<OrbitalCanvasProps> = ({
         };
       };
 
-      ctx.strokeStyle = dodIngested ? 'rgba(245, 158, 11, 0.75)' : 'rgba(245, 158, 11, 0.28)';
-      ctx.lineWidth = dodIngested ? 2 : 1;
+      // DoD Track
+      ctx.strokeStyle = dodIngested ? 'rgba(245, 158, 11, 0.85)' : 'rgba(245, 158, 11, 0.3)';
+      ctx.lineWidth = dodIngested ? 2.2 : 1.2;
       ctx.beginPath();
-      for (let a = 0; a <= Math.PI * 2; a += 0.06) {
+      for (let a = 0; a <= Math.PI * 2; a += 0.05) {
         const v = getDoDPoint(a);
         const pt = project3D(v.x, v.y, v.z);
         if (a === 0) ctx.moveTo(pt.px, pt.py);
@@ -116,14 +156,15 @@ export const OrbitalCanvas: React.FC<OrbitalCanvasProps> = ({
       }
       ctx.stroke();
 
+      // Starlink Track
       ctx.strokeStyle = resolvedManeuver
-        ? 'rgba(16, 185, 129, 0.85)'
+        ? 'rgba(16, 185, 129, 0.9)'
         : starlinkIngested
-        ? 'rgba(6, 182, 212, 0.75)'
-        : 'rgba(6, 182, 212, 0.28)';
-      ctx.lineWidth = starlinkIngested ? 2 : 1;
+        ? 'rgba(6, 182, 212, 0.85)'
+        : 'rgba(6, 182, 212, 0.3)';
+      ctx.lineWidth = starlinkIngested ? 2.2 : 1.2;
       ctx.beginPath();
-      for (let a = 0; a <= Math.PI * 2; a += 0.06) {
+      for (let a = 0; a <= Math.PI * 2; a += 0.05) {
         const v = getStarlinkPoint(a, Boolean(resolvedManeuver));
         const pt = project3D(v.x, v.y, v.z);
         if (a === 0) ctx.moveTo(pt.px, pt.py);
@@ -131,50 +172,56 @@ export const OrbitalCanvas: React.FC<OrbitalCanvasProps> = ({
       }
       ctx.stroke();
 
+      // Conjunction Point Hazard Pulse
       const conj3D = getDoDPoint(0.85);
       const conjPt = project3D(conj3D.x, conj3D.y, conj3D.z);
+      const pulse = (Math.sin(timestamp / 180) + 1) / 2;
 
-      const pulse = (Math.sin(timestamp / 220) + 1) / 2;
       ctx.beginPath();
-      ctx.arc(conjPt.px, conjPt.py, 14 + pulse * 10, 0, Math.PI * 2);
-      ctx.fillStyle = resolvedManeuver ? 'rgba(16, 185, 129, 0.18)' : 'rgba(239, 68, 68, 0.25)';
+      ctx.arc(conjPt.px, conjPt.py, 16 + pulse * 12, 0, Math.PI * 2);
+      ctx.fillStyle = resolvedManeuver ? 'rgba(16, 185, 129, 0.22)' : 'rgba(239, 68, 68, 0.3)';
       ctx.fill();
       ctx.strokeStyle = resolvedManeuver ? '#10b981' : '#ef4444';
-      ctx.lineWidth = 1.5;
+      ctx.lineWidth = 1.8;
       ctx.stroke();
 
-      const currentAngle = 0.85 - (1 - timeProgress) * 0.9;
-      const dodNow = getDoDPoint(currentAngle);
-      const starNow = getStarlinkPoint(0.85 + (1 - timeProgress) * 0.9, Boolean(resolvedManeuver));
+      // Satellite Movement Calculation (Scrubber + Live Motion)
+      const baseAngle = 0.85 - (1 - timeProgress) * 0.9;
+      const movingAngle = baseAngle + liveOrbitOffset * 0.2;
+      const dodNow = getDoDPoint(movingAngle);
+      const starNow = getStarlinkPoint(movingAngle + 0.85, Boolean(resolvedManeuver));
 
       const dodProj = project3D(dodNow.x, dodNow.y, dodNow.z);
       const starProj = project3D(starNow.x, starNow.y, starNow.z);
 
+      // USA-326 Marker
       ctx.fillStyle = '#f59e0b';
       ctx.beginPath();
-      ctx.arc(dodProj.px, dodProj.py, 5.5, 0, Math.PI * 2);
+      ctx.arc(dodProj.px, dodProj.py, 6.5, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = '#fcd34d';
-      ctx.font = '11px monospace';
-      ctx.fillText('USA-326 [CLASSIFIED]', dodProj.px + 10, dodProj.py - 6);
+      ctx.font = 'bold 11px monospace';
+      ctx.fillText('USA-326 [CLASSIFIED]', dodProj.px + 12, dodProj.py - 4);
 
+      // Starlink Marker
       ctx.fillStyle = resolvedManeuver ? '#10b981' : '#06b6d4';
       ctx.beginPath();
-      ctx.arc(starProj.px, starProj.py, 5.5, 0, Math.PI * 2);
+      ctx.arc(starProj.px, starProj.py, 6.5, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = resolvedManeuver ? '#6ee7b7' : '#67e8f9';
       ctx.fillText(
         resolvedManeuver ? 'STARLINK-4921 [+0.38m/s BURN]' : 'STARLINK-4921 [COMMERCIAL]',
-        starProj.px + 10,
-        starProj.py + 14
+        starProj.px + 12,
+        starProj.py + 16
       );
 
+      ctx.restore();
       animId = requestAnimationFrame(render);
     };
 
     animId = requestAnimationFrame(render);
     return () => cancelAnimationFrame(animId);
-  }, [rotation, zoom, timeProgress, resolvedManeuver, dodIngested, starlinkIngested]);
+  }, [rotation, zoom, timeProgress, resolvedManeuver, dodIngested, starlinkIngested, isDragging]);
 
   return (
     <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-4 flex flex-col h-full">
@@ -202,7 +249,8 @@ export const OrbitalCanvas: React.FC<OrbitalCanvasProps> = ({
       </div>
 
       <div
-        className="relative flex-1 min-h-[340px] bg-zinc-950 rounded-lg border border-zinc-800/80 overflow-hidden cursor-grab active:cursor-grabbing select-none"
+        ref={containerRef}
+        className="relative flex-1 min-h-[380px] bg-zinc-950 rounded-lg border border-zinc-800/80 overflow-hidden cursor-grab active:cursor-grabbing select-none"
         onMouseDown={(e) => {
           setIsDragging(true);
           lastMouseRef.current = { x: e.clientX, y: e.clientY };
@@ -220,18 +268,20 @@ export const OrbitalCanvas: React.FC<OrbitalCanvasProps> = ({
         onMouseUp={() => setIsDragging(false)}
         onMouseLeave={() => setIsDragging(false)}
       >
-        <canvas ref={canvasRef} width={760} height={420} className="w-full h-full object-cover" />
+        <canvas ref={canvasRef} className="w-full h-full block absolute inset-0" />
 
-        <div className="absolute top-3 right-3 flex flex-col gap-1.5">
+        <div className="absolute top-3 right-3 flex flex-col gap-1.5 z-10">
           <button
             onClick={() => setZoom((z) => Math.min(1.5, z + 0.15))}
-            className="p-1.5 bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-700 rounded text-zinc-300"
+            className="p-1.5 bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-700 rounded text-zinc-300 cursor-pointer"
+            title="Zoom In"
           >
             <ZoomIn className="w-4 h-4" />
           </button>
           <button
             onClick={() => setZoom((z) => Math.max(0.65, z - 0.15))}
-            className="p-1.5 bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-700 rounded text-zinc-300"
+            className="p-1.5 bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-700 rounded text-zinc-300 cursor-pointer"
+            title="Zoom Out"
           >
             <ZoomOut className="w-4 h-4" />
           </button>
@@ -240,7 +290,8 @@ export const OrbitalCanvas: React.FC<OrbitalCanvasProps> = ({
               setRotation({ yaw: 0.45, pitch: 0.32 });
               setZoom(1.0);
             }}
-            className="p-1.5 bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-700 rounded text-zinc-300"
+            className="p-1.5 bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-700 rounded text-zinc-300 cursor-pointer"
+            title="Reset Camera"
           >
             <RotateCcw className="w-4 h-4" />
           </button>
